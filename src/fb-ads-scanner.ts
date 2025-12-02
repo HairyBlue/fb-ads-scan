@@ -102,9 +102,9 @@ export class FbAdsScanner {
 
   private handleDataReads(data: any) {
    if (data) {
-      const parsed = JSON.parse(data);
-      
-      
+     console.log(data);
+     // TODO
+     // read path data here
    }
   }
 

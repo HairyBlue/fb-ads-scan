@@ -10,7 +10,12 @@ const useArgs: string[] = [...setArgs];
 const launchOptions: LaunchOptions = {
   headless: false,
   slowMo: 200,
-  // args: useArgs,
+  args: [
+   '--no-sandbox',
+   '--disable-setuid-sandbox',
+   '--disable-blink-features=AutomationControlled',
+   '--disable-dev-shm-usage'
+  ],
 };
 
 const location = 'Huel';
