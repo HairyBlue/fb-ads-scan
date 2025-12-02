@@ -1,0 +1,39 @@
+{
+  "name": "fb-add-scrape",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/app.js",
+  "scripts": {
+    "start": "node dist/app.js",
+    "dev": "nodemon src/app.ts",
+    "build": "tsc",
+    "check": "npx tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:watch": "onchange \"src/**/*.ts\" \"test/**/*.ts\" -- prettier --write --ignore-unknown {{changed}}"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/lodash": "^4.17.20",
+    "@types/node": "^24.5.2",
+    "eslint": "^9.36.0",
+    "eslint-plugin-jsdoc": "^60.3.1",
+    "globals": "^16.4.0",
+    "jiti": "^2.6.0",
+    "npm-run-all": "^4.1.5",
+    "onchange": "^7.1.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.1"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21",
+    "nodemon": "^3.1.11",
+    "puppeteer": "^24.31.0"
+  }
+}
