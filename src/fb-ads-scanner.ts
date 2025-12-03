@@ -16,6 +16,13 @@ function fileWrite(path: string, data: { [key: string]: any }) {
   }
 }
 
+interface IPageMetaData {
+   page_id: string
+   name: string
+   last_sync: number
+   ad_archive_ids: string[]
+}
+
 export class FbAdsScanner {
   private location: string;
   private pageId: string;
@@ -29,8 +36,11 @@ export class FbAdsScanner {
   private pageMetaDataFile: string = '';
   private pageAdsDataFile: string = '';
 
-  private pageMetaData: { [key: string]: any } = {};
-  private pageAdsData: Map<string, { [key: string]: any }> = new Map();
+  private pageMetaData!: IPageMetaData;
+  private pageAdsData: Map<string, {[key: string]: any}> = new Map();
+
+  private newAdsCount = 0;
+  doneCollection = false;
 
   constructor(
     location: string,
@@ -79,8 +89,8 @@ export class FbAdsScanner {
       fs.mkdirSync(this.pageCollectionPath);
     }
 
-    this.pageMetaDataFile = path.join(this.pageCollectionPath, 'page-meta-data');
-    this.pageAdsDataFile = path.join(this.pageCollectionPath, 'page-odds-data');
+    this.pageMetaDataFile = path.join(this.pageCollectionPath, 'page-meta-data.json');
+    this.pageAdsDataFile = path.join(this.pageCollectionPath, 'page-ads-data.json');
   }
 
   private setPreviousData() {
@@ -100,21 +110,86 @@ export class FbAdsScanner {
     this.pageMetaData.ad_archive_ids = ad_archive_ids;
   }
 
-  private handleDataReads(data: any) {
-   if (data) {
-     console.log(data);
-     // TODO
-     // read path data here
+  private checkIfValidToSave(ad_archive_id: string, result: any): boolean {
+   if (!this.pageAdsData.has(ad_archive_id)) {
+      return true;
    }
+
+   const prev = this.pageAdsData.get(ad_archive_id) as any;
+   return prev.end_date !== result.end_date;
   }
 
-  private async responseReader(res: HTTPResponse) {
-    const url = res.url();
-    if (url.indexOf('/api/graphql/') >= 0) {
+  private handleDataReads(page: Page) {
+   return (data: any) => {
+      const mapKeys = ["ad_library_main", "search_results_connection", "edges"];
+      const ignoreKey = "dynamic_filter_options";
+      if (data.data) {
+         let mapData = data.data;
+         let prev = data.data;
+   
+         for (const key of mapKeys) {
+            if (mapData[ignoreKey]) {
+              return;
+            }
+        
+            if (mapData) {
+              mapData = mapData[key];
+            }
+        
+            if (!mapData) {
+              throw new Error(
+                "It doesn't properly map the Ads, probably FB changed the structure\n" +
+                  JSON.stringify(Object.entries(prev))
+              );
+            }
+        
+            prev = mapData;
+          }
+   
+   
+         // THis should be the edges now, should be an array
+         if (Array.isArray(mapData)) {
+           for (const egde of mapData) {
+            const node = egde.node;
+            const results = node.collated_results;
+   
+            if (Array.isArray(results)) {
+               for (const result of results) {
+                  const ad_archive_id = String(result.ad_archive_id);
+                  const isValid = this.checkIfValidToSave(ad_archive_id, result);
+                  if (!isValid) continue
+
+                  this.pageAdsData.set(ad_archive_id, result);
+                  this.pageMetaData.ad_archive_ids.push(ad_archive_id);
+                  this.newAdsCount++;
+
+                  if (this.maxAds > 0 && this.newAdsCount >= this.maxAds && !this.doneCollection) {
+                     this.doneCollection = true;
+                     return;
+                  }
+               }
+            }
+
+            if (this.doneCollection) {
+               return
+            }
+
+           }
+         } else {
+            console.warn("Edge is emtpy or not found")
+         }
+      }
+   }
+
+  }
+
+  private async responseReader(res: HTTPResponse, cb: any) {
+   const url = res.url();
+   if (url.indexOf('/api/graphql/') >= 0) {
       const data = await res.json();
-      this.handleDataReads(data);
+      cb(data);
       // fs.appendFileSync('../sample.json', JSON.stringify(data, null, 4));
-    }
+   }
   }
 
   initialBuild() {
@@ -122,22 +197,50 @@ export class FbAdsScanner {
     this.setSaveDir();
     this.setPreviousData();
 
-    if (Object.keys(this.pageMetaData).length <= 0) {
+    if (!this.pageMetaData) {
       this.pageMetaData = {
          page_id: this.pageId,
          name: this.location,
-         lastUpdate: Date.now(),
+         last_sync: 0, // 0 means no sync, wala na ads data nakuha ha! Gamit tag Date.now() dinhia ha
          ad_archive_ids: [],
       }
     }
   }
 
-  async startCollection() {
-    const handler = this.responseReader.bind(this);
+async startCollection() {
+   try {
+     const page = await this.scrapper.newPage();
+     await this.scrapper.pageGoTo(page, this.scanUrl);
+ 
+     const responseReader = this.responseReader.bind(this);
+     const handleData = this.handleDataReads(page);
+ 
+     await this.scrapper.setRequestInterception(page, responseReader, handleData);
+ 
+     await page.exposeFunction('getDoneFlag', () => this.doneCollection);
+     const result = await this.scrapper.setAutoScroll(page);
+ 
+     if (result === "scroll_done") {
+       await this.syncData(page);
+     }
+ 
+   } catch (e) {
+     console.error(e);
+   }
+ }
 
-    const page = await this.scrapper.newPage();
-    await this.scrapper.pageGoTo(page, this.scanUrl);
-    await this.scrapper.setRequestInterception(page, handler);
-    await this.scrapper.setAutoScroll(page);
+ 
+  async syncData(page: Page) {
+   if (this.newAdsCount > 0) {
+      this.pageMetaData.last_sync = Date.now();
+      console.log(this.pageMetaData, this.newAdsCount);
+
+      fs.writeFileSync(this.pageMetaDataFile, JSON.stringify(this.pageMetaData, null, 4));
+      fs.writeFileSync(this.pageAdsDataFile, JSON.stringify(Object.fromEntries(this.pageAdsData), null, 4))
+   }
+
+   if (page && !page.isClosed()) {
+      await page.close();
+   }
   }
 }

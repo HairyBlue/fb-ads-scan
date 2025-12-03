@@ -1,14 +1,21 @@
 import puppeteer, { LaunchOptions, Browser, Page } from 'puppeteer';
+import { FbAdsScanner } from './fb-ads-scanner';
 
 export class PuppeteerInstance {
   private launchOptions: LaunchOptions;
   private browserType: 'chrome' | 'firefox';
   private page!: Page;
   private browser!: Browser;
+  private scannerWatch!: FbAdsScanner;
 
   constructor(launchOptions: LaunchOptions, browserType: 'chrome' | 'firefox' = 'chrome') {
     this.launchOptions = launchOptions;
     this.browserType = browserType;
+
+  }
+
+accessScanner(scanner: FbAdsScanner) {
+   this.scannerWatch = scanner;
   }
 
   private async useBrowser(): Promise<Browser> {
@@ -51,34 +58,63 @@ export class PuppeteerInstance {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeout });
   }
 
-  async setRequestInterception(page: Page, cb: any) {
+  async setRequestInterception(page: Page, cb1: any, cb2: any) {
     await page.setRequestInterception(true);
 
     page.on('request', (req) => {
       req.continue();
     });
 
-    page.on('response', (res) => [cb(res)]);
-  }
-
-  async setAutoScroll(page: Page) {
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve) => {
-        let totalHeight = 0;
-        const distance = 100;
-        const intervalId = setInterval(() => {
-          const scrollHeight = document.body.scrollHeight;
-          window.scrollBy(0, distance);
-          totalHeight += distance;
-
-          if (totalHeight >= scrollHeight) {
-            clearInterval(intervalId);
-            resolve();
-          }
-        }, 100);
-      });
+    page.on('response', (res) =>  {
+      cb1(res, cb2);
     });
-
-    await page.close();
   }
+
+
+async setAutoScroll(
+   page: Page,
+   distance: number = 100,
+   intervalMs: number = 100,
+   maxScrollTimeoutMs: number = 3600000
+): Promise<"scroll_done" | "scroll_timeout" | "scroll_error"> {
+
+ try {
+   const result = await page.evaluate(
+     async ({ distance, intervalMs, maxScrollTimeoutMs}) => {
+       return new Promise<"scroll_done" | "scroll_error">((resolve, reject) => {
+         try {
+           let totalHeight = 0;
+
+           const timer = setInterval(async () => {
+             const scrollHeight = document.body.scrollHeight;
+             window.scrollBy(0, distance);
+             totalHeight += distance;
+
+             const doneFlag = await (window as any).getDoneFlag();
+
+             if (doneFlag || totalHeight >= scrollHeight) {
+               clearInterval(timer);
+               resolve("scroll_done");
+             }
+           }, intervalMs);
+            // setTimeout(() => {
+            //    clearInterval(timer);
+            //    reject("scroll_timeout");
+            //  }, maxScrollTimeoutMs);
+         } catch (err) {
+           reject("scroll_error");
+         }
+       });
+     },
+     { distance, intervalMs, maxScrollTimeoutMs }
+   );
+
+   return result;
+
+ } catch (err) {
+   console.error("Scroll evaluation error:", err);
+   return "scroll_error";
+ }
+}
+
 }
