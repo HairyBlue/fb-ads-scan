@@ -8,8 +8,8 @@ const setArgs = new Set(defaultChromeArgs.concat(customArgs));
 const useArgs: string[] = [...setArgs];
 
 const launchOptions: LaunchOptions = {
-  headless: false,
-   slowMo: 200,
+  headless: true,
+  slowMo: 200,
   args: [
    '--no-sandbox',
    '--disable-setuid-sandbox',
